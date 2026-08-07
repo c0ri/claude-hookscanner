@@ -98,9 +98,15 @@ yet.
 
 ## Install
 
-Requires `bash`, `jq`, `openssl`, `sha256sum` (coreutils). Tested on
-Linux; should work on macOS (bash 3.2+) but hasn't been verified there
-yet. Windows: run it under WSL -- there's no native PowerShell installer.
+Requires `bash`, `jq`, `openssl`, GNU coreutils (`sha256sum`, `chmod`/
+`chown --reference`, GNU `date`), and bash 4+ (`mapfile`). **Linux only
+right now** -- macOS's stock userland has none of the above by default
+(BSD `date`/`chmod`/`chown` don't support the flags used here, there's no
+`sha256sum` binary, and `/bin/bash` is stuck at 3.2 for GPLv3 licensing
+reasons), so this will fail partway through, not cleanly refuse to run.
+Portable macOS support is a known gap, not yet done -- see the repo
+issues before assuming it works. Windows: run it under WSL, which is
+Linux underneath and unaffected by any of this.
 
 ```bash
 git clone <this-repo>
