@@ -30,6 +30,8 @@ UNINSTALL=0
 PURGE_STATE=0
 KEY_DIR_ARG=""
 BIN_DIR_ARG=""
+WITH_CRON=""
+CRON_TAG="# claude-hookscanner"
 
 for arg in "$@"; do
   case "$arg" in
@@ -38,8 +40,9 @@ for arg in "$@"; do
     --purge-state) PURGE_STATE=1 ;;
     --key-dir=*) KEY_DIR_ARG="${arg#*=}" ;;
     --bin-dir=*) BIN_DIR_ARG="${arg#*=}" ;;
+    --with-cron=*) WITH_CRON="${arg#*=}" ;;
     --help|-h)
-      echo "usage: install.sh [--yes] [--key-dir=PATH] [--bin-dir=PATH]"
+      echo "usage: install.sh [--yes] [--key-dir=PATH] [--bin-dir=PATH] [--with-cron=hourly|daily|off]"
       echo "       install.sh --uninstall [--yes] [--purge-state] [--key-dir=PATH] [--bin-dir=PATH]"
       exit 0
       ;;
@@ -138,6 +141,16 @@ if [ "$UNINSTALL" = "1" ]; then
     fi
   elif [ -f "$SETTINGS" ]; then
     warn "jq not found -- remove the PostToolUse entry referencing remind_sign_hook.py from $SETTINGS by hand."
+  fi
+
+  if command -v crontab >/dev/null 2>&1 && crontab -l 2>/dev/null | grep -qF "$CRON_TAG"; then
+    # `grep -v` exits 1 when nothing matched to filter out (e.g. the tag
+    # was the only line) -- that's a normal/expected outcome here, not an
+    # error, so it must not be allowed to trip `set -e` and silently kill
+    # the rest of the script (same footgun class as rand_dirname's
+    # `head -c` fix above).
+    ( crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true ) | crontab -
+    say "Removed the cron entry."
   fi
 
   if [ "$PURGE_STATE" = "1" ]; then
@@ -343,7 +356,53 @@ else
   fi
 fi
 
-# ── 6. Show it working ───────────────────────────────────────────────────────
+# ── 6. Optional periodic scan (cron) ────────────────────────────────────────
+# The reminder hook only catches hooks written *through* a Claude Code
+# session -- a hook planted some other way (a raw `npm install` run
+# outside a session, or anything dropped directly onto disk) still needs
+# an actual periodic scan to be caught at all. Skippable/off by default
+# under --yes, since adding a cron entry is a bigger footprint than
+# anything else this installer does and shouldn't happen silently.
+if [ "$(id -u)" = "0" ]; then
+  cron_state_dir_default="/var/log/claude-hookscanner"
+else
+  cron_state_dir_default="${XDG_STATE_HOME:-$HOME/.local/state}/claude-hookscanner"
+fi
+CRON_SCHEDULE=""
+case "$WITH_CRON" in
+  hourly) CRON_SCHEDULE="0 * * * *" ;;
+  daily)  CRON_SCHEDULE="0 3 * * *" ;;
+  off|"") ;;
+  *) warn "Unrecognized --with-cron value '$WITH_CRON' -- expected hourly, daily, or off. Skipping cron." ;;
+esac
+
+if [ -z "$CRON_SCHEDULE" ] && [ -z "$WITH_CRON" ] && [ "$NONINTERACTIVE" != "1" ] && command -v crontab >/dev/null 2>&1; then
+  echo
+  echo "Add a cron entry to scan periodically, catching hooks planted"
+  echo "outside a Claude Code session (the reminder hook alone won't see those)?"
+  echo "  1) Hourly"
+  echo "  2) Daily"
+  echo "  3) Skip"
+  read -r -p "Choice [3]: " cron_choice
+  case "${cron_choice:-3}" in
+    1) CRON_SCHEDULE="0 * * * *" ;;
+    2) CRON_SCHEDULE="0 3 * * *" ;;
+    *) ;;
+  esac
+fi
+
+if [ -n "$CRON_SCHEDULE" ] && command -v crontab >/dev/null 2>&1; then
+  mkdir -p "$cron_state_dir_default"
+  cron_line="$CRON_SCHEDULE $BIN_DIR/claude-hook-scan.sh >> $cron_state_dir_default/scan.log 2>&1 $CRON_TAG"
+  # Same `grep -v` / set -e footgun as above -- empty or tag-free existing
+  # crontab is the common case, not an error.
+  ( crontab -l 2>/dev/null | grep -vF "$CRON_TAG" || true; echo "$cron_line" ) | crontab -
+  say "Cron entry added: $cron_line"
+elif [ -n "$CRON_SCHEDULE" ]; then
+  warn "No crontab command found -- couldn't add periodic scanning. Add it yourself, see the README's cron example."
+fi
+
+# ── 7. Show it working ───────────────────────────────────────────────────────
 echo
 say "Running a scan so you can see it working:"
 CLAUDE_HOOK_HMAC_KEY="$KEY_FILE" "$BIN_DIR/claude-hook-scan.sh" || true

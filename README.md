@@ -131,10 +131,48 @@ It will:
 3. Sign the reminder hook itself, and offer to merge the PostToolUse entry
    into `~/.claude/settings.json` (backing it up first) if `jq` is
    available -- otherwise it prints the JSON snippet to add by hand.
-4. Run a scan so you can see it working immediately.
+4. Ask whether to add a cron entry (hourly, daily, or skip) for periodic
+   scanning. This matters: the reminder hook only catches hooks written
+   *through* a Claude Code session -- a hook planted some other way (a
+   raw `npm install` run outside a session, or anything dropped directly
+   onto disk) is invisible to it and needs an actual periodic scan to be
+   caught at all. Re-running the installer replaces any existing
+   `claude-hookscanner`-tagged cron line rather than duplicating it, and
+   never touches any of your other cron entries.
+5. Run a scan so you can see it working immediately.
 
 Non-interactive use (CI, config management, scripted fleet rollout):
-`./install.sh --yes [--key-dir=PATH] [--bin-dir=PATH]`.
+`./install.sh --yes [--key-dir=PATH] [--bin-dir=PATH] [--with-cron=hourly|daily]`.
+Cron is off by default under `--yes` unless you pass `--with-cron`
+explicitly -- adding a cron entry is a bigger footprint than anything
+else this installer does and shouldn't happen silently.
+
+Then sign whatever other hooks you already had:
+
+```bash
+sign-hook.sh ~/.claude/hooks/your-existing-hook.py
+```
+
+If you skipped cron during install (or want to change the schedule
+later), add or edit it yourself -- no need to re-run the installer just
+for this:
+
+```cron
+0 * * * * /usr/local/bin/claude-hook-scan.sh >> /path/to/scan.log 2>&1
+```
+
+No need to pass `CLAUDE_HOOK_HMAC_KEY` explicitly -- `install.sh` already
+baked the resolved key path into the installed copy of
+`claude-hook-scan.sh` as its default. Only set that env var if you're
+intentionally overriding it (e.g. running the tool straight from a repo
+checkout without installing it).
+
+`claude-hook-scan.sh` exits `0` on a clean run and `1` if it found
+anything unverified/unacked -- wire that into whatever already pages you
+(cron mail, a CI job, your existing monitoring). See `notify.d/` for a
+lower-effort alternative: point `CLAUDE_HOOKSCANNER_NOTIFY` at a script
+and the scanner calls it directly, per finding, with no separate log
+parsing needed.
 
 ### Uninstall
 
@@ -156,31 +194,8 @@ at, since that could be a directory you use for other things.
 Ack-list and scan history are kept by default (it's an audit trail, not
 something to silently destroy); add `--purge-state` to remove that too.
 Non-interactive: `./install.sh --uninstall --yes [--purge-state]`.
-
-Then sign whatever other hooks you already had:
-
-```bash
-sign-hook.sh ~/.claude/hooks/your-existing-hook.py
-```
-
-Then run the scanner periodically -- a cron entry is the simplest option:
-
-```cron
-0 * * * * /usr/local/bin/claude-hook-scan.sh >> /path/to/scan.log 2>&1
-```
-
-No need to pass `CLAUDE_HOOK_HMAC_KEY` explicitly -- `install.sh` already
-baked the resolved key path into the installed copy of
-`claude-hook-scan.sh` as its default. Only set that env var if you're
-intentionally overriding it (e.g. running the tool straight from a repo
-checkout without installing it).
-
-`claude-hook-scan.sh` exits `0` on a clean run and `1` if it found
-anything unverified/unacked -- wire that into whatever already pages you
-(cron mail, a CI job, your existing monitoring). See `notify.d/` for a
-lower-effort alternative: point `CLAUDE_HOOKSCANNER_NOTIFY` at a script
-and the scanner calls it directly, per finding, with no separate log
-parsing needed.
+`--uninstall` also removes any `claude-hookscanner`-tagged cron entry,
+without touching any of your other cron jobs.
 
 ## Config reference
 
