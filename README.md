@@ -65,7 +65,11 @@ to run. It's a nudge, not enforcement -- `PostToolUse` fires after the
 write already completed and can't block or undo it. The actual
 enforcement is the HMAC check in `claude-hook-scan.sh`; this just closes
 the window where a freshly-installed hook sits unsigned and
-indistinguishable from a planted one.
+indistinguishable from a planted one. It has its own notify hook,
+`CLAUDE_HOOK_NOTIFY`, same shape and contract as `claude-hook-scan.sh`'s
+-- see the Config reference table and `notify.d/` -- for alerting the
+instant an unsigned hook shows up, rather than waiting on the next
+scheduled scan.
 
 ## What this does *not* protect against
 
@@ -191,7 +195,8 @@ these by hand.
 | `CLAUDE_HOOK_HMAC_KEY` | baked in by `install.sh`; `~/.claude/hooks/.hmac_key` if run from source | shared signing key |
 | `CLAUDE_HOOKSCANNER_STATE` | `/var/log/claude-hookscanner` if root, else `~/.local/state/claude-hookscanner` | ack-list + flagged-detail dir |
 | `CLAUDE_HOOK_SCAN_ROOT` | `/` | root to search for `.claude` dirs |
-| `CLAUDE_HOOKSCANNER_NOTIFY` | (unset) | optional per-finding notify command, see `notify.d/` |
+| `CLAUDE_HOOKSCANNER_NOTIFY` | (unset) | optional per-finding notify command for `claude-hook-scan.sh`, see `notify.d/` |
+| `CLAUDE_HOOK_NOTIFY` | (unset) | same contract as above, but for `remind_sign_hook.py` -- fires the instant an unsigned hook is written, not just on the next scan |
 
 ## Reviewing a flagged finding
 

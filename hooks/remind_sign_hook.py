@@ -12,12 +12,22 @@ Config (env vars, all optional):
   CLAUDE_HOOK_HMAC_KEY  -- path to the shared HMAC key file
                            (default: below -- install.sh rewrites this to a
                            randomized, non-default location)
+  CLAUDE_HOOK_NOTIFY    -- optional command to invoke when an unsigned hook
+                           is found, in addition to the in-session nudge.
+                           Called as: notify <severity> <finding_type>
+                           <path> <detail> -- same four-argument shape as
+                           claude-hook-scan.sh's CLAUDE_HOOKSCANNER_NOTIFY,
+                           see notify.d/ for the contract + examples. Fires
+                           with finding_type="unsigned_hook". Best-effort:
+                           a failing/slow notifier never blocks or delays
+                           the tool result beyond a short timeout.
 """
 import hashlib
 import hmac
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -85,6 +95,17 @@ def main():
 
     if verify_hmac(file_path, key_file):
         sys.exit(0)
+
+    notify_cmd = os.environ.get("CLAUDE_HOOK_NOTIFY", "")
+    if notify_cmd:
+        try:
+            subprocess.run(
+                [notify_cmd, "high", "unsigned_hook", file_path,
+                 "written via Claude Code PostToolUse, HMAC signature missing or invalid"],
+                timeout=8, capture_output=True,
+            )
+        except Exception:
+            pass  # best-effort -- never let a slow/failing notifier block the tool result
 
     print(json.dumps({
         "hookSpecificOutput": {
