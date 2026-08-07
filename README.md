@@ -34,6 +34,14 @@ missing or invalid signature reliably means "not something I signed" --
 that's the whole mechanism, and it degrades gracefully: no key configured
 just means nothing gets marked verified, not a false "safe."
 
+`install.sh` deliberately does *not* put the key at a fixed, predictable
+path (the old `~/.claude/hooks/.hmac_key` convention) -- it generates a
+random hidden directory under `$HOME` (or a path you choose) and bakes
+the resolved path into each installed script's own default, instead of
+exporting it through a shell rc file or env var. See "What this does not
+protect against" below for exactly what that buys you and what it
+doesn't.
+
 **2. Heuristic checks for everything else**, since not everything can be
 signed (you can't sign a third-party package's own files):
 - Any `.claude` config found inside a `node_modules/` (or equivalent)
@@ -67,52 +75,95 @@ observed pattern (a malicious *package*, without shell access to your
 Claude Code config, trying to plant a hook), not a substitute for not
 getting root-compromised in the first place.
 
+Be precise about what the random key-directory trick (see Install below)
+does and doesn't buy you, too. It's aimed at **opportunistic, "drive-by"
+supply-chain worms** -- generic malware payloads that hardcode a short
+list of well-known filenames (`.aws/credentials`, `id_rsa`, `.hmac_key`,
+...) and try them across every victim they land on, because a lightweight
+non-interactive payload that doesn't do a real directory listing is
+cheaper to write and less likely to trip something on the way in. Against
+that class of attacker, a key that isn't sitting at the one path
+everyone's install guide says to check is a real improvement.
+
+It does **not** meaningfully defend against a targeted attacker who reads
+this repo and runs `ls -la ~/.claude/hooks/ ; find $HOME -maxdepth 2 -type
+f` -- a lone 64-character hex file is identifiable by shape and location
+regardless of what it's named or which directory it's in, once someone's
+actually looking. Don't repeat the "randomized + obscure" framing as if
+it were access control; it's raising the cost of the cheap, common attack,
+not closing the door on a determined one. Real access control (OS
+keychain/keyring integration, so the key requires more than same-user
+file-read to retrieve) is a documented future direction, not implemented
+yet.
+
 ## Install
 
-Requires `bash`, `jq`, `openssl`, `sha256sum` (coreutils).
+Requires `bash`, `jq`, `openssl`, `sha256sum` (coreutils). Tested on
+Linux; should work on macOS (bash 3.2+) but hasn't been verified there
+yet. Windows: run it under WSL -- there's no native PowerShell installer.
 
 ```bash
 git clone <this-repo>
 cd claude-hookscanner
-
-# 1. Generate a key (once, per machine or per fleet -- your call)
-mkdir -p ~/.claude/hooks
-openssl rand -hex 32 > ~/.claude/hooks/.hmac_key
-chmod 600 ~/.claude/hooks/.hmac_key
-
-# 2. Put the tools on PATH (or reference them by full path)
-install -m 755 bin/sign-hook.sh bin/ack-hook.sh bin/claude-hook-scan.sh /usr/local/bin/
-
-# 3. Sign your existing, intentional hooks
-sign-hook.sh ~/.claude/hooks/your-existing-hook.py
-
-# 4. Install the reminder hook
-cp hooks/remind_sign_hook.py ~/.claude/hooks/
-sign-hook.sh ~/.claude/hooks/remind_sign_hook.py   # yes, sign this one too
+./install.sh
 ```
 
-Add to `~/.claude/settings.json`:
+It will:
+1. Ask where to store the HMAC key -- an auto-generated random hidden
+   directory under `$HOME` (recommended) or a path you specify. Re-running
+   it later reuses whatever key it finds already installed rather than
+   silently rotating and orphaning it; pass `--key-dir=PATH` if you
+   actually want to rotate.
+2. Install `sign-hook.sh` / `ack-hook.sh` / `claude-hook-scan.sh` to a bin
+   directory of your choice, and the PostToolUse reminder hook to
+   `~/.claude/hooks/`, with that key path baked into each installed
+   copy's default.
+3. Sign the reminder hook itself, and offer to merge the PostToolUse entry
+   into `~/.claude/settings.json` (backing it up first) if `jq` is
+   available -- otherwise it prints the JSON snippet to add by hand.
+4. Run a scan so you can see it working immediately.
 
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          { "type": "command", "command": "python3 ~/.claude/hooks/remind_sign_hook.py" }
-        ]
-      }
-    ]
-  }
-}
+Non-interactive use (CI, config management, scripted fleet rollout):
+`./install.sh --yes [--key-dir=PATH] [--bin-dir=PATH]`.
+
+### Uninstall
+
+```bash
+./install.sh --uninstall
+```
+
+You don't need to have written down the random key directory -- uninstall
+finds it the same way a repeat install-run does: by reading the baked-in
+default back out of `~/.claude/hooks/remind_sign_hook.py`, whose location
+is conventionally fixed anyway. It falls back to prompting for the
+directory only if that file's already gone (or pass `--key-dir=PATH`
+directly). It only ever removes files that carry our install marker --
+a same-named file that isn't actually ours is left alone -- and only
+`rmdir`s the key's containing directory when it matches the
+auto-generated naming pattern, never a custom `--key-dir` you pointed it
+at, since that could be a directory you use for other things.
+
+Ack-list and scan history are kept by default (it's an audit trail, not
+something to silently destroy); add `--purge-state` to remove that too.
+Non-interactive: `./install.sh --uninstall --yes [--purge-state]`.
+
+Then sign whatever other hooks you already had:
+
+```bash
+sign-hook.sh ~/.claude/hooks/your-existing-hook.py
 ```
 
 Then run the scanner periodically -- a cron entry is the simplest option:
 
 ```cron
-0 * * * * CLAUDE_HOOK_HMAC_KEY=$HOME/.claude/hooks/.hmac_key /usr/local/bin/claude-hook-scan.sh >> /var/log/claude-hookscanner/scan.log 2>&1
+0 * * * * /usr/local/bin/claude-hook-scan.sh >> /path/to/scan.log 2>&1
 ```
+
+No need to pass `CLAUDE_HOOK_HMAC_KEY` explicitly -- `install.sh` already
+baked the resolved key path into the installed copy of
+`claude-hook-scan.sh` as its default. Only set that env var if you're
+intentionally overriding it (e.g. running the tool straight from a repo
+checkout without installing it).
 
 `claude-hook-scan.sh` exits `0` on a clean run and `1` if it found
 anything unverified/unacked -- wire that into whatever already pages you
@@ -123,12 +174,16 @@ parsing needed.
 
 ## Config reference
 
-All three scripts read the same env vars, so you only set them once:
+All three scripts read the same env vars, so you only set them once. Each
+one overrides a default that `install.sh` already customized for your
+machine (the key path) or that adapts automatically (the state dir, based
+on whether you're root) -- you generally shouldn't need to set any of
+these by hand.
 
 | Var | Default | Meaning |
 |---|---|---|
-| `CLAUDE_HOOK_HMAC_KEY` | `~/.claude/hooks/.hmac_key` | shared signing key |
-| `CLAUDE_HOOKSCANNER_STATE` | `/var/log/claude-hookscanner` | ack-list + flagged-detail dir |
+| `CLAUDE_HOOK_HMAC_KEY` | baked in by `install.sh`; `~/.claude/hooks/.hmac_key` if run from source | shared signing key |
+| `CLAUDE_HOOKSCANNER_STATE` | `/var/log/claude-hookscanner` if root, else `~/.local/state/claude-hookscanner` | ack-list + flagged-detail dir |
 | `CLAUDE_HOOK_SCAN_ROOT` | `/` | root to search for `.claude` dirs |
 | `CLAUDE_HOOKSCANNER_NOTIFY` | (unset) | optional per-finding notify command, see `notify.d/` |
 

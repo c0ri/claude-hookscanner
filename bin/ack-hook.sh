@@ -10,10 +10,16 @@
 #
 # Config (env vars, all optional):
 #   CLAUDE_HOOKSCANNER_STATE  -- state directory
-#                                (default: /var/log/claude-hookscanner)
+#                                (default: /var/log/claude-hookscanner if
+#                                root, else $XDG_STATE_HOME or ~/.local/state)
 set -euo pipefail
 
-STATE_DIR="${CLAUDE_HOOKSCANNER_STATE:-/var/log/claude-hookscanner}"
+if [ "$(id -u)" = "0" ]; then
+  STATE_DIR_DEFAULT="/var/log/claude-hookscanner"
+else
+  STATE_DIR_DEFAULT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-hookscanner"
+fi
+STATE_DIR="${CLAUDE_HOOKSCANNER_STATE:-$STATE_DIR_DEFAULT}"
 ACK_FILE="$STATE_DIR/acked.tsv"
 TARGET="${1:?usage: ack-hook.sh <path> \"<note>\"}"
 NOTE="${2:?usage: ack-hook.sh <path> \"<note>\"}"

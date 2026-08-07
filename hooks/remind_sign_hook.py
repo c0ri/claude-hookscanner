@@ -10,7 +10,8 @@ hook sits unsigned (and unflagged as "ours") until the next scan.
 
 Config (env vars, all optional):
   CLAUDE_HOOK_HMAC_KEY  -- path to the shared HMAC key file
-                           (default: ~/.claude/hooks/.hmac_key)
+                           (default: below -- install.sh rewrites this to a
+                           randomized, non-default location)
 """
 import hashlib
 import hmac
@@ -26,6 +27,9 @@ HOOK_DIR_PATTERNS = [
 ]
 
 SIG_LINE_RE = re.compile(r"^# sentinel-hmac: ([0-9a-f]{64})$")
+
+# INSTALL_DEFAULT_KEY_FILE -- install.sh rewrites the line below in place.
+KEY_FILE_DEFAULT = str(Path.home() / ".claude/hooks/.hmac_key")
 
 
 def looks_like_hook_script(path: str) -> bool:
@@ -73,7 +77,7 @@ def main():
     if not file_path or not looks_like_hook_script(file_path):
         sys.exit(0)
 
-    key_file = os.environ.get("CLAUDE_HOOK_HMAC_KEY", str(Path.home() / ".claude/hooks/.hmac_key"))
+    key_file = os.environ.get("CLAUDE_HOOK_HMAC_KEY", KEY_FILE_DEFAULT)
 
     if not os.path.isfile(key_file):
         # No key provisioned on this machine -- nothing to nudge about.

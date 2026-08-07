@@ -24,17 +24,26 @@
 # implant a hook without shell access to read your Claude Code config.
 #
 # Config (env vars, all optional):
-#   CLAUDE_HOOK_HMAC_KEY      -- HMAC key file (default: ~/.claude/hooks/.hmac_key)
+#   CLAUDE_HOOK_HMAC_KEY      -- HMAC key file (default: below -- install.sh
+#                                rewrites this to a randomized location)
 #   CLAUDE_HOOKSCANNER_STATE  -- state dir, holds ack-list + flagged detail
-#                                (default: /var/log/claude-hookscanner)
+#                                (default: /var/log/claude-hookscanner if
+#                                root, else $XDG_STATE_HOME or ~/.local/state)
 #   CLAUDE_HOOK_SCAN_ROOT     -- filesystem root to search for .claude dirs
 #                                (default: /)
 #   CLAUDE_HOOKSCANNER_NOTIFY -- optional command to invoke on any finding;
 #                                see notify.d/ for the contract + examples
 set -uo pipefail
 
-STATE_DIR="${CLAUDE_HOOKSCANNER_STATE:-/var/log/claude-hookscanner}"
-HMAC_KEY_FILE="${CLAUDE_HOOK_HMAC_KEY:-$HOME/.claude/hooks/.hmac_key}"
+if [ "$(id -u)" = "0" ]; then
+  STATE_DIR_DEFAULT="/var/log/claude-hookscanner"
+else
+  STATE_DIR_DEFAULT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-hookscanner"
+fi
+STATE_DIR="${CLAUDE_HOOKSCANNER_STATE:-$STATE_DIR_DEFAULT}"
+# INSTALL_DEFAULT_KEY_FILE -- install.sh rewrites the line below in place.
+HMAC_KEY_FILE_DEFAULT="$HOME/.claude/hooks/.hmac_key"
+HMAC_KEY_FILE="${CLAUDE_HOOK_HMAC_KEY:-$HMAC_KEY_FILE_DEFAULT}"
 SCAN_ROOT="${CLAUDE_HOOK_SCAN_ROOT:-/}"
 NOTIFY_CMD="${CLAUDE_HOOKSCANNER_NOTIFY:-}"
 ACK_FILE="$STATE_DIR/acked.tsv"

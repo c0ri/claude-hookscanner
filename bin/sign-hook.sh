@@ -9,10 +9,15 @@
 #
 # Config (env vars, all optional):
 #   CLAUDE_HOOK_HMAC_KEY  -- path to the shared HMAC key file
-#                            (default: ~/.claude/hooks/.hmac_key)
+#                            (default: below -- install.sh rewrites this to a
+#                            randomized, non-default location; running from a
+#                            plain git checkout without install.sh falls back
+#                            to the conventional path shown here)
 set -euo pipefail
 
-KEY_FILE="${CLAUDE_HOOK_HMAC_KEY:-$HOME/.claude/hooks/.hmac_key}"
+# INSTALL_DEFAULT_KEY_FILE -- install.sh rewrites the line below in place.
+KEY_FILE_DEFAULT="$HOME/.claude/hooks/.hmac_key"
+KEY_FILE="${CLAUDE_HOOK_HMAC_KEY:-$KEY_FILE_DEFAULT}"
 TARGET="${1:?usage: sign-hook.sh <script-path>}"
 
 if [ ! -f "$KEY_FILE" ]; then
