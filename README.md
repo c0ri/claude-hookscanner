@@ -2,6 +2,8 @@
 
 A supply-chain integrity check for Claude Code hooks.
 
+Built by the team behind [Sentinel AI Firewall](https://sentinelaifirewall.com).
+
 ## The problem
 
 Claude Code hooks (`.claude/settings.json`, `settings.local.json`,
@@ -226,6 +228,17 @@ reason it exists is that something unverified is in there.
 - Actually malicious -> remove it. Consider moving it aside first (rather
   than deleting outright) if you want to preserve it for further
   analysis or reporting.
+
+## About
+
+This came out of hardening our own Claude Code fleet against supply-chain
+hook implants. It covers one specific vector -- a planted hook script --
+and deliberately doesn't try to cover more than that (see "What this does
+*not* protect against" above). It has nothing to do with, and doesn't
+require, prompt-injection or data-exfiltration defense at the LLM-traffic
+level -- that's a different, broader problem, which is what we built
+[Sentinel AI Firewall](https://sentinelaifirewall.com) to address. Two
+separate tools for two separate threats in the same general space.
 
 ## License
 
